@@ -1,11 +1,15 @@
 class Agent(object):
     """
     Defines a basic reinforcement learning agent for OpenAI Gym environments
+    所有agent的基类
     """
 
     NAME = "Abstract Agent"
 
     def __init__(self, observation_space, action_space):
+        '''
+        本基类构造方法中仅存储观察空间和动作空间的值
+        '''
         super().__init__()
         self.observation_space = observation_space
         self.action_space = action_space

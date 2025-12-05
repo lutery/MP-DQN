@@ -17,6 +17,7 @@ class ScaledStateWrapper(gym.ObservationWrapper):
         self.high = None
         print(type(obs))
         print(obs)
+        # 重新构建环境空间，设置为-1~1
         if isinstance(obs, gym.spaces.Box):
             self.low = env.observation_space.low
             self.high = env.observation_space.high
@@ -26,10 +27,12 @@ class ScaledStateWrapper(gym.ObservationWrapper):
             self.low = obs.spaces[0].low
             self.high = obs.spaces[0].high
             assert len(obs.spaces) == 2 and isinstance(obs.spaces[1], gym.spaces.Discrete)
+            # todo 这里的obs.spaces[1]是啥？
             self.observation_space = Tuple(
                 (gym.spaces.Box(low=-np.ones(self.low.shape), high=np.ones(self.high.shape),
                                 dtype=np.float32),
                  obs.spaces[1]))
+            # todo 这个是啥？
             self.compound = True
         else:
             raise Exception("Unsupported observation space type: %s" % self.observation_space)
@@ -83,10 +86,11 @@ class ScaledParameterisedActionWrapper(gym.ActionWrapper):
     def __init__(self, env):
         super(ScaledParameterisedActionWrapper, self).__init__(env)
         self.old_as = env.action_space
-        self.num_actions = self.old_as.spaces[0].n
-        self.high = [self.old_as.spaces[i].high for i in range(1, self.num_actions + 1)]
-        self.low = [self.old_as.spaces[i].low for i in range(1, self.num_actions + 1)]
-        self.range = [self.old_as.spaces[i].high - self.old_as.spaces[i].low for i in range(1, self.num_actions + 1)]
+        self.num_actions = self.old_as.spaces[0].n # 离散动作数
+        self.high = [self.old_as.spaces[i].high for i in range(1, self.num_actions + 1)] # 每个连续动作的原最高值
+        self.low = [self.old_as.spaces[i].low for i in range(1, self.num_actions + 1)] # 每个连续动作的原最低值
+        self.range = [self.old_as.spaces[i].high - self.old_as.spaces[i].low for i in range(1, self.num_actions + 1)] # 每个连续动作的原范围
+        # 直接设置每个新的连续动作的归一化后的范围
         new_params = [  # parameters
             Box(-np.ones(self.old_as.spaces[i].low.shape), np.ones(self.old_as.spaces[i].high.shape), dtype=np.float32)
             for i in range(1, self.num_actions + 1)

@@ -173,33 +173,46 @@ class PDQNAgent(Agent):
                  device="cuda" if torch.cuda.is_available() else "cpu",
                  seed=None):
         super(PDQNAgent, self).__init__(observation_space, action_space)
-        self.device = torch.device(device)
-        self.num_actions = self.action_space.spaces[0].n
+        self.device = torch.device(device)  # 运行设备
+        self.num_actions = self.action_space.spaces[0].n # 离散动作数，每个离散动作对应一个连续动作
+        # 连续动作每个动作的shape维度
         self.action_parameter_sizes = np.array([self.action_space.spaces[i].shape[0] for i in range(1,self.num_actions+1)])
+        # 统计所有连续动作的总维度
         self.action_parameter_size = int(self.action_parameter_sizes.sum())
+        # 连续动作的最大值和最小值以及范围 todo 难道是归一化后的范围？
         self.action_max = torch.from_numpy(np.ones((self.num_actions,))).float().to(device)
         self.action_min = -self.action_max.detach()
         self.action_range = (self.action_max-self.action_min).detach()
         print([self.action_space.spaces[i].high for i in range(1,self.num_actions+1)])
+        # 获取并展平每一个连续动过的最大值和最小值
         self.action_parameter_max_numpy = np.concatenate([self.action_space.spaces[i].high for i in range(1,self.num_actions+1)]).ravel()
         self.action_parameter_min_numpy = np.concatenate([self.action_space.spaces[i].low for i in range(1,self.num_actions+1)]).ravel()
+        # 计算每个连续动作的范围 todo 这里的和上面的有啥区别？
         self.action_parameter_range_numpy = (self.action_parameter_max_numpy - self.action_parameter_min_numpy)
+        # 以下是上面的torch形式
         self.action_parameter_max = torch.from_numpy(self.action_parameter_max_numpy).float().to(device)
         self.action_parameter_min = torch.from_numpy(self.action_parameter_min_numpy).float().to(device)
         self.action_parameter_range = torch.from_numpy(self.action_parameter_range_numpy).float().to(device)
+        
+        # 根据经验，这里应该是探索的噪音
         self.epsilon = epsilon_initial
         self.epsilon_initial = epsilon_initial
         self.epsilon_final = epsilon_final
         self.epsilon_steps = epsilon_steps
+
+        # todo
         self.indexed = indexed
         self.weighted = weighted
         self.average = average
         self.random_weighted = random_weighted
         assert (weighted ^ average ^ random_weighted) or not (weighted or average or random_weighted)
-
+        
+        # 索引偏移量，用于分割连续动作参数 todo 后续看如何使用
         self.action_parameter_offsets = self.action_parameter_sizes.cumsum()
+        # 第一个动作是没有便宜的，所以这里在头部加入一个0
         self.action_parameter_offsets = np.insert(self.action_parameter_offsets, 0, 0)
 
+        #记录各种参数 todo 后续看代码时再增加注释
         self.batch_size = batch_size
         self.gamma = gamma
         self.replay_memory_size = replay_memory_size
@@ -219,6 +232,7 @@ class PDQNAgent(Agent):
         self.seed = seed
         self._seed(seed)
 
+        # 这个应该就是连续噪音采样器
         self.use_ornstein_noise = use_ornstein_noise
         self.noise = OrnsteinUhlenbeckActionNoise(self.action_parameter_size, random_machine=self.np_random, mu=0., theta=0.15, sigma=0.0001) #, theta=0.01, sigma=0.01)
 
