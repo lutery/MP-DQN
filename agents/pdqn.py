@@ -66,28 +66,48 @@ class ParamActor(nn.Module):
 
     def __init__(self, state_size, action_size, action_parameter_size, hidden_layers, squashing_function=False,
                  output_layer_init_std=None, init_type="kaiming", activation="relu", init_std=None):
+        '''
+        Docstring for __init__
+        
+        :param self: Description
+        :param state_size: 状态空间的维度
+        :param action_size: 离散动作的数量
+        :param action_parameter_size: 连续动作的维度总和
+        :param hidden_layers: 隐藏层的结构
+        :param squashing_function: 是否使用压缩函数， mqdqn中传入的是False
+        :param output_layer_init_std: 输出层的初始化标准差 mqdqn中传入的是0.0001
+        :param init_type: 初始化类型, mpdqn中未传入
+        :param activation: 激活函数， mpdqn中未传入
+        :param init_std: 初始化标准差， mpdqn中未传入
+        '''
         super(ParamActor, self).__init__()
 
         self.state_size = state_size
         self.action_size = action_size
         self.action_parameter_size = action_parameter_size
-        self.squashing_function = squashing_function
+        self.squashing_function = squashing_function # todo 作用
         self.activation = activation
         if init_type == "normal":
+            # 如果采用的是正态分布初始化，则必须指定标准差
             assert init_std is not None and init_std > 0
+        # 我去，一个不支持的功能还放在这里？ todo 后续看看怎么给他支持了
         assert self.squashing_function is False  # unsupported, cannot get scaling right yet
 
         # create layers
         self.layers = nn.ModuleList()
         inputSize = self.state_size
+        # lastHiddenLayerSize是用来存储最后一个隐藏层的大小的
         lastHiddenLayerSize = inputSize
+        # 如果有隐藏层的话，就创建隐藏层
         if hidden_layers is not None:
             nh = len(hidden_layers)
             self.layers.append(nn.Linear(inputSize, hidden_layers[0]))
             for i in range(1, nh):
                 self.layers.append(nn.Linear(hidden_layers[i - 1], hidden_layers[i]))
             lastHiddenLayerSize = hidden_layers[nh - 1]
+        # 创建输出层，这里输出的维度是连续动作的总维度
         self.action_parameters_output_layer = nn.Linear(lastHiddenLayerSize, self.action_parameter_size)
+        # 创建直通层，用于将状态直接映射到动作参数空间，输出的维度是动作的总维度
         self.action_parameters_passthrough_layer = nn.Linear(self.state_size, self.action_parameter_size)
 
         # initialise layer weights
@@ -146,7 +166,7 @@ class PDQNAgent(Agent):
     def __init__(self,
                  observation_space,
                  action_space,
-                 actor_class=QActor,
+                 actor_class=QActor, # 在mpdqn中没有直接在这里传入，而是在自己的构造函数中构建了actor
                  actor_kwargs={},
                  actor_param_class=ParamActor,
                  actor_param_kwargs={},
@@ -157,7 +177,7 @@ class PDQNAgent(Agent):
                  gamma=0.99,
                  tau_actor=0.01,  # Polyak averaging factor for copying target weights
                  tau_actor_param=0.001,
-                 replay_memory_size=1000000,
+                 replay_memory_size=1000000, # 采样缓冲区的大小
                  learning_rate_actor=0.0001,
                  learning_rate_actor_param=0.00001,
                  initial_memory_threshold=0,
@@ -237,12 +257,17 @@ class PDQNAgent(Agent):
         self.noise = OrnsteinUhlenbeckActionNoise(self.action_parameter_size, random_machine=self.np_random, mu=0., theta=0.15, sigma=0.0001) #, theta=0.01, sigma=0.01)
 
         print(self.num_actions+self.action_parameter_size)
+        # 1+self.action_parameter_size：其中的1应该是离散动作
+        # 构建采样缓冲区
         self.replay_memory = Memory(replay_memory_size, observation_space.shape, (1+self.action_parameter_size,), next_actions=False)
+        # 构建动作预测网络和目标网络，由于子类覆盖了，所以这里就不会注释了
         self.actor = actor_class(self.observation_space.shape[0], self.num_actions, self.action_parameter_size, **actor_kwargs).to(device)
         self.actor_target = actor_class(self.observation_space.shape[0], self.num_actions, self.action_parameter_size, **actor_kwargs).to(device)
+        # 这里是同步动作网络和目标网络之间的权重
         hard_update_target_network(self.actor, self.actor_target)
-        self.actor_target.eval()
+        self.actor_target.eval()# 目标网络设置为评估模式，不进行训练和梯度计算
 
+        # 在mpdqn中，这里传入的ParamActor
         self.actor_param = actor_param_class(self.observation_space.shape[0], self.num_actions, self.action_parameter_size, **actor_param_kwargs).to(device)
         self.actor_param_target = actor_param_class(self.observation_space.shape[0], self.num_actions, self.action_parameter_size, **actor_param_kwargs).to(device)
         hard_update_target_network(self.actor_param, self.actor_param_target)

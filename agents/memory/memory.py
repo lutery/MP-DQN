@@ -6,6 +6,15 @@ import numpy as np
 
 class RingBuffer(object):
     def __init__(self, maxlen, shape, dtype='float32'):
+        '''
+        Docstring for __init__
+        将numpy数组实现为环形缓冲区，估计是为了一些通用的存储需求服务的
+        
+        :param self: Description
+        :param maxlen: 最大缓冲区大小
+        :param shape: 数据的形状
+        :param dtype: 数据类型
+        '''
         self.maxlen = maxlen
         self.start = 0
         self.length = 0
@@ -49,6 +58,16 @@ def array_min2d(x):
 
 class Memory(object):
     def __init__(self, limit, observation_shape, action_shape, next_actions=False):
+        '''
+        Docstring for __init__
+        经验回放缓冲区，用于存储智能体与环境交互的经验数据，使用环形缓冲区实现
+        
+        :param self: Description
+        :param limit: 缓冲区的大小
+        :param observation_shape: 观察空间的shape
+        :param action_shape: 离散动作的维度1+连续动作的维度之和
+        :param next_actions: 是否存储下一个动作
+        '''
         self.limit = limit
 
         self.states = RingBuffer(limit, shape=observation_shape)

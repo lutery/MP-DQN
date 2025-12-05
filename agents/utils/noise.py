@@ -22,7 +22,7 @@ class OrnsteinUhlenbeckActionNoise(object):
         self.mu = mu
         self.theta = theta
         self.sigma = sigma
-        self.X = np.ones(self.action_dim) * self.mu
+        self.X = np.ones(self.action_dim) * self.mu # 初始化噪音状态为均值，shape 为 (action_dim,)
 
     def reset(self):
         self.X = np.ones(self.action_dim) * self.mu
