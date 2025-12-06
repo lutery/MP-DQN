@@ -161,12 +161,17 @@ def run(seed, episodes, evaluation_episodes, batch_size, gamma, inverting_gradie
                        seed=seed)
 
     if initialise_params:
+        # todo 这个权重去更新啥的？
+        # shape is (num_actions, state_size)
         initial_weights = np.zeros((env.action_space.spaces[0].n, env.observation_space.spaces[0].shape[0]))
+        # shape is (num_actions,)
         initial_bias = np.zeros(env.action_space.spaces[0].n)
+        # 将偏置初始化为对应的初始动作参数
         for a in range(env.action_space.spaces[0].n):
             initial_bias[a] = initial_params_[a]
         agent.set_action_parameter_passthrough_weights(initial_weights, initial_bias)
     print(agent)
+    # todo 以下参数的含义后续再更新
     max_steps = 250
     total_reward = 0.
     returns = []
@@ -178,12 +183,15 @@ def run(seed, episodes, evaluation_episodes, batch_size, gamma, inverting_gradie
 
     for i in range(episodes):
         if save_freq > 0 and save_dir and i % save_freq == 0:
+            # 根据保存频率保存模型
             agent.save_models(os.path.join(save_dir, str(i)))
         state, _ = env.reset()
         state = np.array(state, dtype=np.float32, copy=False)
         if visualise and i % render_freq == 0:
+            # 如果开启了可视化，并且到了渲染频率，则渲染当前环境
             env.render()
 
+        # 根据当前状态选择动作
         act, act_param, all_action_parameters = agent.act(state)
         action = pad_action(act, act_param)
 

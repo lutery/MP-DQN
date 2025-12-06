@@ -67,7 +67,7 @@ class ParamActor(nn.Module):
     def __init__(self, state_size, action_size, action_parameter_size, hidden_layers, squashing_function=False,
                  output_layer_init_std=None, init_type="kaiming", activation="relu", init_std=None):
         '''
-        Docstring for __init__
+        Docstring for 根据观察输出预测的所有连续动作的参数
         
         :param self: Description
         :param state_size: 状态空间的维度
@@ -111,6 +111,7 @@ class ParamActor(nn.Module):
         self.action_parameters_passthrough_layer = nn.Linear(self.state_size, self.action_parameter_size)
 
         # initialise layer weights
+        # 根据不同的初始化类型，初始化隐藏层的权重
         for i in range(0, len(self.layers)):
             if init_type == "kaiming":
                 nn.init.kaiming_normal_(self.layers[i].weight, nonlinearity=activation)
@@ -118,25 +119,39 @@ class ParamActor(nn.Module):
                 nn.init.normal_(self.layers[i].weight, std=init_std)
             else:
                 raise ValueError("Unknown init_type "+str(init_type))
-            nn.init.zeros_(self.layers[i].bias)
+            nn.init.zeros_(self.layers[i].bias) # 貌似对于偏置项都是初始化为0
+        
+        # 单独初始化动作输出层
         if output_layer_init_std is not None:
             nn.init.normal_(self.action_parameters_output_layer.weight, std=output_layer_init_std)
         else:
+            # 如果没有指定输出层的初始化标准差，则将权重初始化为0
             nn.init.zeros_(self.action_parameters_output_layer.weight)
         nn.init.zeros_(self.action_parameters_output_layer.bias)
 
+        # 直通层初始化为0
         nn.init.zeros_(self.action_parameters_passthrough_layer.weight)
         nn.init.zeros_(self.action_parameters_passthrough_layer.bias)
 
         # fix passthrough layer to avoid instability, rest of network can compensate
+        # 直通层的权重和偏置不进行更新 todo 为啥？
         self.action_parameters_passthrough_layer.requires_grad = False
         self.action_parameters_passthrough_layer.weight.requires_grad = False
         self.action_parameters_passthrough_layer.bias.requires_grad = False
 
     def forward(self, state):
+        '''
+        Docstring for forward
+        
+        :param self: Description
+        :param state: 环境观察
+
+        :return: 返回动作参数，应该是连续动作参数，shape is (batch_size, action_parameter_size)
+        '''
         x = state
         negative_slope = 0.01
         num_hidden_layers = len(self.layers)
+        # 首先通过隐藏层
         for i in range(0, num_hidden_layers):
             if self.activation == "relu":
                 x = F.relu(self.layers[i](x))
@@ -144,10 +159,13 @@ class ParamActor(nn.Module):
                 x = F.leaky_relu(self.layers[i](x), negative_slope)
             else:
                 raise ValueError("Unknown activation function "+str(self.activation))
+        # 通过输出层得到动作参数
         action_params = self.action_parameters_output_layer(x)
+        # 加上直通层的输出
         action_params += self.action_parameters_passthrough_layer(state)
 
         if self.squashing_function:
+            # todo 这里还未实现，后续再看
             assert False  # scaling not implemented yet
             action_params = action_params.tanh()
             action_params = action_params * self.action_param_lim
@@ -304,19 +322,29 @@ class PDQNAgent(Agent):
         return desc
 
     def set_action_parameter_passthrough_weights(self, initial_weights, initial_bias=None):
+        '''
+        Docstring for set_action_parameter_passthrough_weights 初始化直通层的权重
+        
+        :param self: Description
+        :param initial_weights: 直通层权重，shape is (num_actions, state_size)
+        :param initial_bias: 直通层偏置，shape is (num_actions,)
+        '''
         passthrough_layer = self.actor_param.action_parameters_passthrough_layer
         print(initial_weights.shape)
         print(passthrough_layer.weight.data.size())
         assert initial_weights.shape == passthrough_layer.weight.data.size()
+        # 初始化直通层的权重和偏置
         passthrough_layer.weight.data = torch.Tensor(initial_weights).float().to(self.device)
         if initial_bias is not None:
             print(initial_bias.shape)
             print(passthrough_layer.bias.data.size())
             assert initial_bias.shape == passthrough_layer.bias.data.size()
             passthrough_layer.bias.data = torch.Tensor(initial_bias).float().to(self.device)
+        # 固定直通层的权重和偏置，不进行更新
         passthrough_layer.requires_grad = False
         passthrough_layer.weight.requires_grad = False
         passthrough_layer.bias.requires_grad = False
+        # 初始化完成后，还要同步到目标网络
         hard_update_target_network(self.actor_param, self.actor_param_target)
 
     def _seed(self, seed=None):
@@ -355,17 +383,20 @@ class PDQNAgent(Agent):
     def act(self, state):
         with torch.no_grad():
             state = torch.from_numpy(state).to(self.device)
+            # 得到预测的所有连续动作的参数
             all_action_parameters = self.actor_param.forward(state)
 
             # Hausknecht and Stone [2016] use epsilon greedy actions with uniform random action-parameter exploration
-            rnd = self.np_random.uniform()
+            rnd = self.np_random.uniform() # 用于选择随机动作还是模型预测的最大Q值动作
             if rnd < self.epsilon:
+                # 随机选择离散动作
                 action = self.np_random.choice(self.num_actions)
                 if not self.use_ornstein_noise:
+                    # 随机选择连续动作参数
                     all_action_parameters = torch.from_numpy(np.random.uniform(self.action_parameter_min_numpy,
                                                               self.action_parameter_max_numpy))
             else:
-                # select maximum action
+                # select maximum action 模型根据当前状态预测所有动作的Q值，选择Q值最大的动作
                 Q_a = self.actor.forward(state.unsqueeze(0), all_action_parameters.unsqueeze(0))
                 Q_a = Q_a.detach().cpu().data.numpy()
                 action = np.argmax(Q_a)
@@ -527,6 +558,8 @@ class PDQNAgent(Agent):
         saves the target actor and critic models
         :param prefix: the count of episodes iterated
         :return:
+        这里的保存模型，仅保存了actor和actor_param两个网络
+        todo 这两个网络分别是干啥的？
         """
         torch.save(self.actor.state_dict(), prefix + '_actor.pt')
         torch.save(self.actor_param.state_dict(), prefix + '_actor_param.pt')
