@@ -172,15 +172,16 @@ def run(seed, episodes, evaluation_episodes, batch_size, gamma, inverting_gradie
         agent.set_action_parameter_passthrough_weights(initial_weights, initial_bias)
     print(agent)
     # todo 以下参数的含义后续再更新
-    max_steps = 250
+    max_steps = 250 # 每次episode的最大步数，也就是采样的最大步数
     total_reward = 0.
-    returns = []
+    returns = [] # 存储每个episode的总奖励
     start_time = time.time()
     video_index = 0
     # agent.epsilon_final = 0.
     # agent.epsilon = 0.
     # agent.noise = None
 
+    # 训练的生命周期
     for i in range(episodes):
         if save_freq > 0 and save_dir and i % save_freq == 0:
             # 根据保存频率保存模型
@@ -191,12 +192,12 @@ def run(seed, episodes, evaluation_episodes, batch_size, gamma, inverting_gradie
             # 如果开启了可视化，并且到了渲染频率，则渲染当前环境
             env.render()
 
-        # 根据当前状态选择动作
+        # 根据当前状态选择动作，返回预测的离散动作，离散动作对应的连续动作参数，以及所有连续动作参数
         act, act_param, all_action_parameters = agent.act(state)
-        action = pad_action(act, act_param)
+        action = pad_action(act, act_param) # 将离散动作和连续动作参数打包成环境需要的动作格式
 
-        episode_reward = 0.
-        agent.start_episode()
+        episode_reward = 0. # 存储当前episode的总奖励
+        agent.start_episode() # 通知agent开始一个新的episode，不过本代码中啥都没做
         for j in range(max_steps):
 
             ret = env.step(action)
@@ -206,44 +207,50 @@ def run(seed, episodes, evaluation_episodes, batch_size, gamma, inverting_gradie
             next_act, next_act_param, next_all_action_parameters = agent.act(next_state)
             next_action = pad_action(next_act, next_act_param)
             agent.step(state, (act, all_action_parameters), reward, next_state,
-                       (next_act, next_all_action_parameters), terminal, steps)
-            act, act_param, all_action_parameters = next_act, next_act_param, next_all_action_parameters
+                       (next_act, next_all_action_parameters), terminal, steps) # 训练，保存经验，更新网络等一系列操作
+            act, act_param, all_action_parameters = next_act, next_act_param, next_all_action_parameters # 更新当前动作
             action = next_action
             state = next_state
 
             episode_reward += reward
             if visualise and i % render_freq == 0:
-                env.render()
+                env.render() # 渲染当前环境
 
             if terminal:
                 break
-        agent.end_episode()
+        agent.end_episode() # 通知agent当前episode结束
 
         if save_frames and i % render_freq == 0:
+            # 保存当前episode的渲染帧
             video_index = env.unwrapped.save_render_states(vidir, title, video_index)
 
         returns.append(episode_reward)
-        total_reward += episode_reward
+        total_reward += episode_reward # 更新总奖励
         if i % 100 == 0:
+            # 每100个episode打印一次当前的平均奖励
             print('{0:5s} R:{1:.4f} r100:{2:.4f}'.format(str(i), total_reward / (i + 1), np.array(returns[-100:]).mean()))
+    # 训练结束，计算总耗时
     end_time = time.time()
     print("Took %.2f seconds" % (end_time - start_time))
     env.close()
     if save_freq > 0 and save_dir:
+        # 训练结束，保存最终模型
         agent.save_models(os.path.join(save_dir, str(i)))
 
-    returns = env.get_episode_rewards()
-    print("Ave. return =", sum(returns) / len(returns))
+    returns = env.get_episode_rewards() # 获取每个episode的总奖励
+    print("Ave. return =", sum(returns) / len(returns)) 
     print("Ave. last 100 episode return =", sum(returns[-100:]) / 100.)
 
     np.save(os.path.join(dir, title + "{}".format(str(seed))),returns)
 
     if evaluation_episodes > 0:
+        # 评估训练好的agent
         print("Evaluating agent over {} episodes".format(evaluation_episodes))
         agent.epsilon_final = 0.
         agent.epsilon = 0.
         agent.noise = None
         evaluation_returns = evaluate(env, agent, evaluation_episodes)
+        # 打印评估结果，包括平均奖励，保存评估结果
         print("Ave. evaluation return =", sum(evaluation_returns) / len(evaluation_returns))
         np.save(os.path.join(dir, title + "{}e".format(str(seed))), evaluation_returns)
 

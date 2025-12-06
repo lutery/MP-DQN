@@ -29,18 +29,23 @@ class RingBuffer(object):
         return self.data[(self.start + idx) % self.maxlen]
 
     def get_batch(self, idxs):
+        # 根据索引列表获取一批数据
         return self.data[(self.start + idxs) % self.maxlen]
 
     def append(self, v):
+        # 将样本添加到缓冲区中
         if self.length < self.maxlen:
+            # 如果缓冲区未满，则简单的增加长度
             # We have space, simply increase the length.
             self.length += 1
         elif self.length == self.maxlen:
+            # 如果缓冲区已满，则覆盖最旧的数据，此时start指针向后移动一位
             # No space, "remove" the first item.
             self.start = (self.start + 1) % self.maxlen
         else:
             # This should never happen.
             raise RuntimeError()
+        # 存储数据
         self.data[(self.start + self.length - 1) % self.maxlen] = v
 
     def clear(self):
@@ -78,8 +83,9 @@ class Memory(object):
         self.terminals = RingBuffer(limit, shape=(1,))
 
     def sample(self, batch_size, random_machine=np.random):
-        # Draw such that we always have a proceeding element.
+        # Draw such that we always have a proceeding element. 采样batch_size个样本，可支持自定义的随机数生成器
         # batch_idxs = random_machine.random_integers(self.nb_entries - 2, size=batch_size)
+        # 生成batch_size个随机索引，范围是[0, nb_entries-1]
         batch_idxs = random_machine.random_integers(low=0, high=self.nb_entries-1, size=batch_size)
 
         '''states_batch = array_min2d(self.states.get_batch(batch_idxs))
@@ -87,6 +93,7 @@ class Memory(object):
         rewards_batch = array_min2d(self.rewards.get_batch(batch_idxs))
         next_states_batch = array_min2d(self.next_states.get_batch(batch_idxs))
         terminals_batch = array_min2d(self.terminals.get_batch(batch_idxs))'''
+        # 这里采样的的样本之间都不是连续的
         states_batch = self.states.get_batch(batch_idxs)
         actions_batch = self.actions.get_batch(batch_idxs)
         rewards_batch = self.rewards.get_batch(batch_idxs)
@@ -94,12 +101,25 @@ class Memory(object):
         next_actions = self.next_actions.get_batch(batch_idxs) if self.next_actions is not None else None
         terminals_batch = self.terminals.get_batch(batch_idxs)
 
+        # 根据不同情况返回不同的内容（是否包含next_actions）
         if next_actions is not None:
             return states_batch, actions_batch, rewards_batch, next_states_batch, next_actions, terminals_batch
         else:
             return states_batch, actions_batch, rewards_batch, next_states_batch, terminals_batch
 
     def append(self, state, action, reward, next_state, next_action=None, terminal=False, training=True):
+        '''
+        Docstring for 将样本添加到缓冲区，无其他操作，只是单纯的放入缓冲区
+        
+        :param self: Description
+        :param state: Description
+        :param action: Description
+        :param reward: Description
+        :param next_state: Description
+        :param next_action: Description
+        :param terminal: Description
+        :param training: Description
+        '''
         if not training:
             return
 
@@ -121,6 +141,11 @@ class Memory(object):
 
     @property
     def nb_entries(self):
+        '''
+        Docstring for 获取当前缓冲区中的样本数量
+        
+        :param self: Description
+        '''
         return len(self.states)
 
 

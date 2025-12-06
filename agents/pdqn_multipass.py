@@ -65,22 +65,30 @@ class MultiPassQActor(nn.Module):
         Docstring for forward
         
         :param self: Description
-        :param state: 环境观察
-        :param action_parameters: 所有连续动作参数
+        :param state: 环境观察， shape (batch_size, state_size)
+        :param action_parameters: 所有连续动作参数 shape (batch_size, total_action_parameter_size)
         '''
         # implement forward
+        # todo 作用
         negative_slope = 0.01
 
         Q = []
         # duplicate inputs so we can process all actions in a single pass
         batch_size = state.shape[0]
         # with torch.no_grad():
-        x = torch.cat((state, torch.zeros_like(action_parameters)), dim=1)
-        x = x.repeat(self.action_size, 1)
-        for a in range(self.action_size):
+        # todo 这里为啥要将状态和全零的动作参数拼接，然后再进行重复？
+        x = torch.cat((state, torch.zeros_like(action_parameters)), dim=1) # x shape (batch_size, state_size + total_action_parameter_size) 
+        # 对于每个离散动作，都要将对应的连续动作参数填充进去，每个样本都要这样做，所以要重复batch_size次
+        x = x.repeat(self.action_size, 1) # x shape (batch_size * action_size, state_size + total_action_parameter_size)
+        for a in range(self.action_size): # 遍历离散动作
+            # action_parameters[:, self.offsets[a]:self.offsets[a+1]] 是在取出对应离散动作的连续动作参数
+            # a*batch_size:(a+1)*batch_size 是在取出对应离散动作的那一块样本（针对所有batch_size个样本）
+            # 然后将对应的连续动作参数填充进去，看来每个样本都要单独计算一遍
             x[a*batch_size:(a+1)*batch_size, self.state_size + self.offsets[a]: self.state_size + self.offsets[a+1]] \
                 = action_parameters[:, self.offsets[a]:self.offsets[a+1]]
-
+        
+        # 将组合的输入传递通过网络，每个离散动作单独一个batch进行计算，后续在拼接起来
+        # todo 这里面的shape是如何计算变化的？
         num_layers = len(self.layers)
         for i in range(0, num_layers - 1):
             if self.activation == "relu":
@@ -89,15 +97,18 @@ class MultiPassQActor(nn.Module):
                 x = F.leaky_relu(self.layers[i](x), negative_slope)
             else:
                 raise ValueError("Unknown activation function "+str(self.activation))
-        Qall = self.layers[-1](x)
+        # 最后输出全部动作的Q值
+        Qall = self.layers[-1](x) # Qall shape (batch_size * action_size, action_size)
 
         # extract Q-values for each action
         for a in range(self.action_size):
-            Qa = Qall[a*batch_size:(a+1)*batch_size, a]
+            # a*batch_size:(a+1)*batch_size：对每个样本获取指定离散动作的Q值
+            Qa = Qall[a*batch_size:(a+1)*batch_size, a] # Qa shape (batch_size,)
             if len(Qa.shape) == 1:
-                Qa = Qa.unsqueeze(1)
+                # 看来如果只有一个维度的话，需要扩展一下维度，todo 是否是需要将一个离散动作的环境和多个离散动作的环境兼容
+                Qa = Qa.unsqueeze(1) # Qa shape (batch_size, 1)
             Q.append(Qa)
-        Q = torch.cat(Q, dim=1)
+        Q = torch.cat(Q, dim=1) # Q shape (batch_size, action_size) 这里的cat就是将每个离散动作的Q值拼接起来，因为在计算时每个离散动作都是单独计算的，不和其他离散动作混在一起计算
         return Q
 
 
