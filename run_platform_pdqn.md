@@ -365,3 +365,74 @@ env.close()  # 触发 Monitor 写入统计文件
 - 自定义的帧保存逻辑
 
 这种"Monitor + 手动记录"的组合是强化学习实验的**标准做法**，既保证了标准化，又保持了灵活性。
+
+# #codebase 在整个代码中，选中的代码的作用是啥？为什么要这么做？
+
+## 这段代码具体做了什么？
+
+选中代码（在 run_platform_pdqn.py）逻辑是：
+
+1. `initial_weights = 0`
+   - 形状是 `(num_actions, state_size)`（在 Platform 环境里刚好等于 `(action_parameter_size, state_size)`，原因见下方“为什么 shape 这样也能过”）。
+2. `initial_bias[a] = initial_params_[a]`
+   - 给每个离散动作准备一个初始连续参数（Platform 是 3 个动作，每个动作 1 个连续参数）。
+3. 调用：`agent.set_action_parameter_passthrough_weights(initial_weights, initial_bias)`
+   - 真正把这些权重/偏置塞进网络里。
+
+---
+
+## 为什么要这么做？（核心原因）
+
+### 1) ParamActor 的输出本来就是“两部分相加”
+在 pdqn.py 里的 `ParamActor.forward`：
+
+- `action_params = action_parameters_output_layer(x)`（可学习的主干网络输出）
+- `action_params += action_parameters_passthrough_layer(state)`（直通层输出）
+
+而直通层在构造时就被**固定不训练**（权重/偏置 `requires_grad=False`），源码里也写了原因：`fix passthrough layer to avoid instability`。
+
+所以直通层非常适合用来做“手工初始化/先验默认值注入”。
+
+### 2) 把直通层权重设 0 + 给偏置一个值 => 初始输出就是常数默认参数
+当 `initial_weights` 全 0 时：
+
+- `passthrough_layer(state) = 0 * state + bias = bias`
+
+也就是说：**不管当前 state 是什么**，网络都会额外加上一个固定的初始参数向量（这里就是 `initial_params_`）。
+
+这能带来两个直接好处：
+
+- **更快收敛**：从“合理参数附近”开始探索，而不是一开始就输出极端/无意义参数。
+- **更稳定**：避免训练初期因参数太离谱导致奖励全是噪声、梯度不稳定。
+
+### 3) 如果你开了 `--scale-actions True`，这些初值还会被缩放到 `[-1, 1]` 的中点附近
+你脚本上面把 `initial_params_` 做了缩放（通常中点会接近 0），这对神经网络训练也更友好：**初始输出不偏置到饱和区**。
+
+---
+
+## 为什么 `initial_bias` 用的是 `num_actions` 长度？不会 shape 不匹配吗？
+
+在通用形式里，直通层的 bias 维度应该是 `action_parameter_size`（所有连续参数拼起来的总维度），而你这里用的是 `num_actions`。
+
+之所以在 Platform（以及 Goal）脚本里能工作，是因为这两个域满足一个“巧合”：
+
+- `action_parameter_size == num_actions`
+
+例如 Platform：3 个离散动作 × 每个动作 1 维连续参数 ⇒ 总连续参数维度也是 3。
+
+所以在 `agents.pdqn.PDQNAgent.set_action_parameter_passthrough_weights` 的断言才不会炸：
+
+- `initial_weights.shape == passthrough_layer.weight.size()`
+- `initial_bias.shape == passthrough_layer.bias.size()`
+
+如果换到“某些动作有多维连续参数”的环境、并且总维度不等于动作数，这段初始化方式就需要改成按 `action_parameter_offsets` 去填充整条参数向量。
+
+---
+
+## 你可以从哪里继续顺着读？
+
+- 直通层定义与相加位置：[`agents/pdqn.py` 里的 `ParamActor`](agents/pdqn.py)
+- 初始化 API 做了什么（并同步到 target）：`agents.pdqn.PDQNAgent.set_action_parameter_passthrough_weights`
+- 为什么 MP-DQN 也会走同样初始化：MP-DQN 只是换了 Q 网络（`actor`），`actor_param` 仍是同一套 ParamActor（见 pdqn_multipass.py 的 `MultiPassPDQNAgent` 构造逻辑）。
+
+如果你希望我结合 **MP-DQN 的 multi-pass QActor** 再解释“为什么这个初始化对 MP-DQN/P-DQN 都有用”，把你当前运行命令（含所有参数）贴一下即可。

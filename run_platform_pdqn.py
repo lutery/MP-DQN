@@ -161,7 +161,9 @@ def run(seed, episodes, evaluation_episodes, batch_size, gamma, inverting_gradie
                        seed=seed)
 
     if initialise_params:
-        # todo 这个权重去更新啥的？
+        # 在这里初始化直通层的权重，使得得初始的连续动作参数接近于预设的初始动作参数
+        # 加速收敛，当然如果你不知道初始动作参数的话，也可以不开启
+        # 最重要的是直通层不参与梯度更新
         # shape is (num_actions, state_size)
         initial_weights = np.zeros((env.action_space.spaces[0].n, env.observation_space.spaces[0].shape[0]))
         # shape is (num_actions,)
@@ -171,7 +173,6 @@ def run(seed, episodes, evaluation_episodes, batch_size, gamma, inverting_gradie
             initial_bias[a] = initial_params_[a]
         agent.set_action_parameter_passthrough_weights(initial_weights, initial_bias)
     print(agent)
-    # todo 以下参数的含义后续再更新
     max_steps = 250 # 每次episode的最大步数，也就是采样的最大步数
     total_reward = 0.
     returns = [] # 存储每个episode的总奖励

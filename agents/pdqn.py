@@ -14,9 +14,26 @@ from agents.utils.noise import OrnsteinUhlenbeckActionNoise
 
 
 class QActor(nn.Module):
+    '''
+    Docstring for QActor
+    当前动作类需要用于PDQN
+    '''
 
     def __init__(self, state_size, action_size, action_parameter_size, hidden_layers=(100,), action_input_layer=0,
                  output_layer_init_std=None, activation="relu", **kwargs):
+        '''
+        Docstring for __init__
+        
+        :param self: Description
+        :param state_size: 环境的观察特征
+        :param action_size: 离散动作的数量
+        :param action_parameter_size: 连续动作参数的总维度
+        :param hidden_layers: 隐藏层结构
+        :param action_input_layer: 动作输入层索引
+        :param output_layer_init_std: 输出层权重初始化标准差
+        :param activation: 激活函数类型
+        :param kwargs: Description
+        '''
         super(QActor, self).__init__()
         self.state_size = state_size
         self.action_size = action_size
@@ -25,8 +42,10 @@ class QActor(nn.Module):
 
         # create layers
         self.layers = nn.ModuleList()
+        # 同样是组合环境观察和连续动作来预测选择的离散动作
         inputSize = self.state_size + self.action_parameter_size
         lastHiddenLayerSize = inputSize
+        # 构建全连接动作特征提取
         if hidden_layers is not None:
             nh = len(hidden_layers)
             self.layers.append(nn.Linear(inputSize, hidden_layers[0]))
@@ -36,6 +55,7 @@ class QActor(nn.Module):
         self.layers.append(nn.Linear(lastHiddenLayerSize, self.action_size))
 
         # initialise layer weights
+        # 同样的初始化和选择初始化预测头
         for i in range(0, len(self.layers) - 1):
             nn.init.kaiming_normal_(self.layers[i].weight, nonlinearity=activation)
             nn.init.zeros_(self.layers[i].bias)
@@ -134,7 +154,9 @@ class ParamActor(nn.Module):
         nn.init.zeros_(self.action_parameters_passthrough_layer.bias)
 
         # fix passthrough layer to avoid instability, rest of network can compensate
-        # 直通层的权重和偏置不进行更新 todo 为啥？
+        # 直通层的权重和偏置不进行更新
+        # 因为直通层的作用主要就是提供一个初始的动作参数估计，避免网络在训练初期的不稳定性
+        # 所以不参与训练，如果参与了训练会导致直通层的权重发生变化，从而影响训练的稳定性
         self.action_parameters_passthrough_layer.requires_grad = False
         self.action_parameters_passthrough_layer.weight.requires_grad = False
         self.action_parameters_passthrough_layer.bias.requires_grad = False
@@ -490,7 +512,7 @@ class PDQNAgent(Agent):
 
     def step(self, state, action, reward, next_state, next_action, terminal, time_steps=1):
         '''
-        Docstring for step
+        Docstring for 保存样本并且训练模型
         
         :param self: Description
         :param state: 环境当前状态

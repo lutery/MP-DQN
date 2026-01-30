@@ -37,7 +37,8 @@ class MultiPassQActor(nn.Module):
 
         # create layers
         self.layers = nn.ModuleList()
-        # 看来这里的输入是结合了状态和所有动作参数的维度，估计是要来个cat
+        # 看来这里的输入是结合了状态和所有连续动作参数的维度，估计是要来个cat
+        # 预测离散动作
         inputSize = self.state_size + self.action_parameter_size
         # 以下部分看父类即可
         lastHiddenLayerSize = inputSize
