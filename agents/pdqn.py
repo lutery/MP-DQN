@@ -66,31 +66,52 @@ class ParamActor(nn.Module):
 
     def __init__(self, state_size, action_size, action_parameter_size, hidden_layers, squashing_function=False,
                  output_layer_init_std=None, init_type="kaiming", activation="relu", init_std=None):
+        '''
+        Docstring for 根据观察输出预测的所有连续动作的参数
+        
+        :param self: Description
+        :param state_size: 状态空间的维度
+        :param action_size: 离散动作的数量
+        :param action_parameter_size: 连续动作的维度总和
+        :param hidden_layers: 隐藏层的结构
+        :param squashing_function: 是否使用压缩函数， mqdqn中传入的是False
+        :param output_layer_init_std: 输出层的初始化标准差 mqdqn中传入的是0.0001
+        :param init_type: 初始化类型, mpdqn中未传入
+        :param activation: 激活函数， mpdqn中未传入
+        :param init_std: 初始化标准差， mpdqn中未传入
+        '''
         super(ParamActor, self).__init__()
 
         self.state_size = state_size
         self.action_size = action_size
         self.action_parameter_size = action_parameter_size
-        self.squashing_function = squashing_function
+        self.squashing_function = squashing_function # todo 作用
         self.activation = activation
         if init_type == "normal":
+            # 如果采用的是正态分布初始化，则必须指定标准差
             assert init_std is not None and init_std > 0
+        # 我去，一个不支持的功能还放在这里？ todo 后续看看怎么给他支持了
         assert self.squashing_function is False  # unsupported, cannot get scaling right yet
 
         # create layers
         self.layers = nn.ModuleList()
         inputSize = self.state_size
+        # lastHiddenLayerSize是用来存储最后一个隐藏层的大小的
         lastHiddenLayerSize = inputSize
+        # 如果有隐藏层的话，就创建隐藏层
         if hidden_layers is not None:
             nh = len(hidden_layers)
             self.layers.append(nn.Linear(inputSize, hidden_layers[0]))
             for i in range(1, nh):
                 self.layers.append(nn.Linear(hidden_layers[i - 1], hidden_layers[i]))
             lastHiddenLayerSize = hidden_layers[nh - 1]
+        # 创建输出层，这里输出的维度是连续动作的总维度
         self.action_parameters_output_layer = nn.Linear(lastHiddenLayerSize, self.action_parameter_size)
+        # 创建直通层，用于将状态直接映射到动作参数空间，输出的维度是动作的总维度
         self.action_parameters_passthrough_layer = nn.Linear(self.state_size, self.action_parameter_size)
 
         # initialise layer weights
+        # 根据不同的初始化类型，初始化隐藏层的权重
         for i in range(0, len(self.layers)):
             if init_type == "kaiming":
                 nn.init.kaiming_normal_(self.layers[i].weight, nonlinearity=activation)
@@ -98,25 +119,39 @@ class ParamActor(nn.Module):
                 nn.init.normal_(self.layers[i].weight, std=init_std)
             else:
                 raise ValueError("Unknown init_type "+str(init_type))
-            nn.init.zeros_(self.layers[i].bias)
+            nn.init.zeros_(self.layers[i].bias) # 貌似对于偏置项都是初始化为0
+        
+        # 单独初始化动作输出层
         if output_layer_init_std is not None:
             nn.init.normal_(self.action_parameters_output_layer.weight, std=output_layer_init_std)
         else:
+            # 如果没有指定输出层的初始化标准差，则将权重初始化为0
             nn.init.zeros_(self.action_parameters_output_layer.weight)
         nn.init.zeros_(self.action_parameters_output_layer.bias)
 
+        # 直通层初始化为0
         nn.init.zeros_(self.action_parameters_passthrough_layer.weight)
         nn.init.zeros_(self.action_parameters_passthrough_layer.bias)
 
         # fix passthrough layer to avoid instability, rest of network can compensate
+        # 直通层的权重和偏置不进行更新 todo 为啥？
         self.action_parameters_passthrough_layer.requires_grad = False
         self.action_parameters_passthrough_layer.weight.requires_grad = False
         self.action_parameters_passthrough_layer.bias.requires_grad = False
 
     def forward(self, state):
+        '''
+        Docstring for forward
+        
+        :param self: Description
+        :param state: 环境观察
+
+        :return: 返回动作参数，应该是连续动作参数，shape is (batch_size, action_parameter_size)
+        '''
         x = state
         negative_slope = 0.01
         num_hidden_layers = len(self.layers)
+        # 首先通过隐藏层
         for i in range(0, num_hidden_layers):
             if self.activation == "relu":
                 x = F.relu(self.layers[i](x))
@@ -124,10 +159,13 @@ class ParamActor(nn.Module):
                 x = F.leaky_relu(self.layers[i](x), negative_slope)
             else:
                 raise ValueError("Unknown activation function "+str(self.activation))
+        # 通过输出层得到动作参数
         action_params = self.action_parameters_output_layer(x)
+        # 加上直通层的输出
         action_params += self.action_parameters_passthrough_layer(state)
 
         if self.squashing_function:
+            # todo 这里还未实现，后续再看
             assert False  # scaling not implemented yet
             action_params = action_params.tanh()
             action_params = action_params * self.action_param_lim
@@ -147,7 +185,7 @@ class PDQNAgent(Agent):
                  # todo 后续补充各种参数的说明
                  observation_space,
                  action_space,
-                 actor_class=QActor,
+                 actor_class=QActor, # 在mpdqn中没有直接在这里传入，而是在自己的构造函数中构建了actor
                  actor_kwargs={},
                  actor_param_class=ParamActor,
                  actor_param_kwargs={},
@@ -158,7 +196,7 @@ class PDQNAgent(Agent):
                  gamma=0.99,
                  tau_actor=0.01,  # Polyak averaging factor for copying target weights
                  tau_actor_param=0.001,
-                 replay_memory_size=1000000,
+                 replay_memory_size=1000000, # 采样缓冲区的大小
                  learning_rate_actor=0.0001,
                  learning_rate_actor_param=0.00001,
                  initial_memory_threshold=0,
@@ -225,8 +263,8 @@ class PDQNAgent(Agent):
         self.inverting_gradients = inverting_gradients
         self.tau_actor = tau_actor
         self.tau_actor_param = tau_actor_param
-        self._step = 0
-        self._episode = 0
+        self._step = 0 # 存储当前的训练步数
+        self._episode = 0 # 存储当前的训练episode数
         self.updates = 0
         self.clip_grad = clip_grad
         self.zero_index_gradients = zero_index_gradients
@@ -240,13 +278,17 @@ class PDQNAgent(Agent):
         self.noise = OrnsteinUhlenbeckActionNoise(self.action_parameter_size, random_machine=self.np_random, mu=0., theta=0.15, sigma=0.0001) #, theta=0.01, sigma=0.01)
 
         print(self.num_actions+self.action_parameter_size)
-        # todo 后续详细看
+        # 1+self.action_parameter_size：其中的1应该是离散动作
+        # 构建采样缓冲区
         self.replay_memory = Memory(replay_memory_size, observation_space.shape, (1+self.action_parameter_size,), next_actions=False)
+        # 构建动作预测网络和目标网络，由于子类覆盖了，所以这里就不会注释了
         self.actor = actor_class(self.observation_space.shape[0], self.num_actions, self.action_parameter_size, **actor_kwargs).to(device)
         self.actor_target = actor_class(self.observation_space.shape[0], self.num_actions, self.action_parameter_size, **actor_kwargs).to(device)
+        # 这里是同步动作网络和目标网络之间的权重
         hard_update_target_network(self.actor, self.actor_target)
-        self.actor_target.eval()
+        self.actor_target.eval()# 目标网络设置为评估模式，不进行训练和梯度计算
 
+        # 在mpdqn中，这里传入的ParamActor
         self.actor_param = actor_param_class(self.observation_space.shape[0], self.num_actions, self.action_parameter_size, **actor_param_kwargs).to(device)
         self.actor_param_target = actor_param_class(self.observation_space.shape[0], self.num_actions, self.action_parameter_size, **actor_param_kwargs).to(device)
         hard_update_target_network(self.actor_param, self.actor_param_target)
@@ -284,26 +326,28 @@ class PDQNAgent(Agent):
 
     def set_action_parameter_passthrough_weights(self, initial_weights, initial_bias=None):
         '''
-        Docstring for set_action_parameter_passthrough_weights
+        Docstring for set_action_parameter_passthrough_weights 初始化直通层的权重
         
         :param self: Description
-        :param initial_weights: Description
-        :param initial_bias: Description
+        :param initial_weights: 直通层权重，shape is (num_actions, state_size)
+        :param initial_bias: 直通层偏置，shape is (num_actions,)
         '''
-
         passthrough_layer = self.actor_param.action_parameters_passthrough_layer
         print(initial_weights.shape)
         print(passthrough_layer.weight.data.size())
         assert initial_weights.shape == passthrough_layer.weight.data.size()
+        # 初始化直通层的权重和偏置
         passthrough_layer.weight.data = torch.Tensor(initial_weights).float().to(self.device)
         if initial_bias is not None:
             print(initial_bias.shape)
             print(passthrough_layer.bias.data.size())
             assert initial_bias.shape == passthrough_layer.bias.data.size()
             passthrough_layer.bias.data = torch.Tensor(initial_bias).float().to(self.device)
+        # 固定直通层的权重和偏置，不进行更新
         passthrough_layer.requires_grad = False
         passthrough_layer.weight.requires_grad = False
         passthrough_layer.bias.requires_grad = False
+        # 初始化完成后，还要同步到目标网络
         hard_update_target_network(self.actor_param, self.actor_param_target)
 
     def _seed(self, seed=None):
@@ -330,6 +374,11 @@ class PDQNAgent(Agent):
         pass
 
     def end_episode(self):
+        '''
+        Docstring for 更新训练的生命周期数，然后根据生命周期数更新epsilon
+        
+        :param self: Description
+        '''
         self._episode += 1
 
         ep = self._episode
@@ -341,48 +390,73 @@ class PDQNAgent(Agent):
 
     def act(self, state):
         with torch.no_grad():
-            state = torch.from_numpy(state).to(self.device)
-            all_action_parameters = self.actor_param.forward(state)
+            state = torch.from_numpy(state).to(self.device) # state shape (state_size,)
+            # 得到预测的所有连续动作的参数
+            all_action_parameters = self.actor_param.forward(state) # all_action_parameters shape (total_action_parameter_size,)
 
             # Hausknecht and Stone [2016] use epsilon greedy actions with uniform random action-parameter exploration
-            rnd = self.np_random.uniform()
+            rnd = self.np_random.uniform() # 用于选择随机动作还是模型预测的最大Q值动作
             if rnd < self.epsilon:
+                # 随机选择离散动作
                 action = self.np_random.choice(self.num_actions)
                 if not self.use_ornstein_noise:
+                    # 随机选择连续动作参数
                     all_action_parameters = torch.from_numpy(np.random.uniform(self.action_parameter_min_numpy,
                                                               self.action_parameter_max_numpy))
             else:
-                # select maximum action
+                # select maximum action 模型根据当前状态预测所有动作的Q值，选择Q值最大的动作
                 Q_a = self.actor.forward(state.unsqueeze(0), all_action_parameters.unsqueeze(0))
-                Q_a = Q_a.detach().cpu().data.numpy()
-                action = np.argmax(Q_a)
+                Q_a = Q_a.detach().cpu().data.numpy() # 这里预测的Q值不参与梯度计算
+                action = np.argmax(Q_a) # 然后每个batch选择Q值最大的动作
 
-            # add noise only to parameters of chosen action
+            # add noise only to parameters of chosen action 给连续动作增加噪音
             all_action_parameters = all_action_parameters.cpu().data.numpy()
+            # 这里是获取选择的离散动作对应的连续动作参数的起始偏移量
             offset = np.array([self.action_parameter_sizes[i] for i in range(action)], dtype=int).sum()
-            if self.use_ornstein_noise and self.noise is not None:
+            if self.use_ornstein_noise and self.noise is not None: # 使用OU噪音才添加噪音
+                # 在所有连续动作参数中，只有选择的离散动作对应的连续动作参数添加噪音，因为只有那个动作对应的连续动作参数才会被执行
                 all_action_parameters[offset:offset + self.action_parameter_sizes[action]] += self.noise.sample()[offset:offset + self.action_parameter_sizes[action]]
+            # 将离散动作对应的连续动作参数提取出来
             action_parameters = all_action_parameters[offset:offset+self.action_parameter_sizes[action]]
 
+        # 返回选择的离散动作，离散动作对应的连续动作参数，以及所有连续动作参数
         return action, action_parameters, all_action_parameters
 
     def _zero_index_gradients(self, grad, batch_action_indices, inplace=True):
+        '''
+        Docstring for 这里主要的作用就是将不属于当前选择的离散动作的连续动作参数的梯度置为0
+        
+        :param self: Description
+        :param grad: 梯度张量，从 Q 网络反向传播得到的
+        :param batch_action_indices: 动作索引张量，shape is (batch_size,)
+        这里的动作索引指的是离散动作的索引
+        :param inplace: 是否在原地修改梯度张量
+        '''
         assert grad.shape[0] == batch_action_indices.shape[0]
         grad = grad.cpu()
 
         if not inplace:
             grad = grad.clone()
         with torch.no_grad():
-            ind = torch.zeros(self.action_parameter_size, dtype=torch.long)
-            for a in range(self.num_actions):
-                ind[self.action_parameter_offsets[a]:self.action_parameter_offsets[a+1]] = a
+            ind = torch.zeros(self.action_parameter_size, dtype=torch.long) # shape is (total_action_parameter_size,) 创建一个全0张量，用于存储每个连续动作参数对应的离散动作索引
+            for a in range(self.num_actions): # 遍历每个离散动作
+                ind[self.action_parameter_offsets[a]:self.action_parameter_offsets[a+1]] = a # 这里是将每个连续动作参数对应的离散动作索引存储到ind张量中，全部覆盖？ todo
             # ind_tile = np.tile(ind, (self.batch_size, 1))
-            ind_tile = ind.repeat(self.batch_size, 1).to(self.device)
-            actual_index = ind_tile != batch_action_indices[:, np.newaxis]
-            grad[actual_index] = 0.
+            ind_tile = ind.repeat(self.batch_size, 1).to(self.device) # ind_tile shape is (batch_size, total_action_parameter_size)
+            actual_index = ind_tile != batch_action_indices[:, np.newaxis] # actual_index shape is (batch_size, total_action_parameter_size),用于标记哪些连续动作参数不属于当前选择的离散动作
+            grad[actual_index] = 0. # 将不属于当前选择的离散动作的连续动作参数的梯度置为0 todo 这里为啥可以直接赋值，梯度的位置能对得上？
         return grad
 
     def _invert_gradients(self, grad, vals, grad_type, inplace=True):
+        '''
+        Docstring for _invert_gradients 具体看md文档
+        
+        :param self: Description
+        :param grad: 梯度张量，从 Q 网络反向传播得到的 
+        :param vals: 对应的动作值张量
+        :param grad_type: "actions" or "action_parameters"
+        :param inplace: 是否在原地修改梯度张量
+        '''
         # 5x faster on CPU (for Soccer, slightly slower for Goal, Platform?)
         if grad_type == "actions":
             max_p = self.action_max
@@ -408,54 +482,88 @@ class PDQNAgent(Agent):
         with torch.no_grad():
             # index = grad < 0  # actually > but Adam minimises, so reversed (could also double negate the grad)
             index = grad > 0
+            # (max_p - vals) / rnge) 这里相当于做了一个归一化，归一化到[0,1]之间，同时vals越接近max_p，归一化的结果越小 
             grad[index] *= (index.float() * (max_p - vals) / rnge)[index]
             grad[~index] *= ((~index).float() * (vals - min_p) / rnge)[~index]
 
         return grad
 
     def step(self, state, action, reward, next_state, next_action, terminal, time_steps=1):
+        '''
+        Docstring for step
+        
+        :param self: Description
+        :param state: 环境当前状态
+        :param action: 当前状态执行的动作，包含离散动作和所有连续动作参数
+        :param reward: 执行动作后获得的奖励
+        :param next_state: 下一状态
+        :param next_action: 下一状态执行的动作，包含离散动作和所有连续动作参数
+        :param terminal: 是否终止
+        :param time_steps: 时间步长
+        '''
         act, all_action_parameters = action
         self._step += 1
 
         # self._add_sample(state, np.concatenate((all_actions.data, all_action_parameters.data)).ravel(), reward, next_state, terminal)
+        # 将样本添加到采样缓冲区中
         self._add_sample(state, np.concatenate(([act],all_action_parameters)).ravel(), reward, next_state, np.concatenate(([next_action[0]],next_action[1])).ravel(), terminal=terminal)
         if self._step >= self.batch_size and self._step >= self.initial_memory_threshold:
+            # 如果采样缓冲区中的样本数量达到批量大小和初始阈值，则进行训练，没有频率限制，每个step都训练
             self._optimize_td_loss()
             self.updates += 1
 
     def _add_sample(self, state, action, reward, next_state, next_action, terminal):
+        '''
+        Docstring for _add_sample
+        
+        :param self: Description
+        :param state: 环境当前状态
+        :param action: 当前状态执行的动作，包含离散动作和所有连续动作参数，这里的action是一个类似[离散动作，连续动作参数1，连续动作参数2，...]的数组
+        :param reward: 执行动作后获得的奖励
+        :param next_state: 下一状态
+        :param next_action: 下一状态执行的动作，包含离散动作和所有连续动作参数，但是这里没用到
+        :param terminal: 是否终止
+        '''
         assert len(action) == 1 + self.action_parameter_size
         self.replay_memory.append(state, action, reward, next_state, terminal=terminal)
 
     def _optimize_td_loss(self):
+        '''
+        Docstring for 训练模型
+        
+        :param self: Description
+        '''
         if self._step < self.batch_size or self._step < self.initial_memory_threshold:
+            # 防御性编程，如果当前步数还没有达到批量大小和初始阈值，则不训练
             return
-        # Sample a batch from replay memory
+        # Sample a batch from replay memory 
         states, actions, rewards, next_states, terminals = self.replay_memory.sample(self.batch_size, random_machine=self.np_random)
 
         states = torch.from_numpy(states).to(self.device)
         actions_combined = torch.from_numpy(actions).to(self.device)  # make sure to separate actions and parameters
-        actions = actions_combined[:, 0].long()
-        action_parameters = actions_combined[:, 1:]
+        actions = actions_combined[:, 0].long() # 离散动作
+        action_parameters = actions_combined[:, 1:] # 所有连续动作参数
         rewards = torch.from_numpy(rewards).to(self.device).squeeze()
         next_states = torch.from_numpy(next_states).to(self.device)
         terminals = torch.from_numpy(terminals).to(self.device).squeeze()
 
         # ---------------------- optimize Q-network ----------------------
         with torch.no_grad():
-            pred_next_action_parameters = self.actor_param_target.forward(next_states)
-            pred_Q_a = self.actor_target(next_states, pred_next_action_parameters)
-            Qprime = torch.max(pred_Q_a, 1, keepdim=True)[0].squeeze()
+            # 传统DQN算法，使用目标网络计算下一个状态的最大Q值
+            pred_next_action_parameters = self.actor_param_target.forward(next_states) # 预测下一个状态的所有连续动作参数
+            pred_Q_a = self.actor_target(next_states, pred_next_action_parameters) # 计算下一个状态所有离散动作的Q值
+            Qprime = torch.max(pred_Q_a, 1, keepdim=True)[0].squeeze() # 选择最大的Q值
 
             # Compute the TD error
-            target = rewards + (1 - terminals) * self.gamma * Qprime
+            target = rewards + (1 - terminals) * self.gamma * Qprime # 计算TD目标值，bellman公式
 
         # Compute current Q-values using policy network
-        q_values = self.actor(states, action_parameters)
-        y_predicted = q_values.gather(1, actions.view(-1, 1)).squeeze()
+        q_values = self.actor(states, action_parameters) # 计算当前状态下所有离散动作的Q值
+        y_predicted = q_values.gather(1, actions.view(-1, 1)).squeeze() # 选择当前动作对应的Q值
         y_expected = target
-        loss_Q = self.loss_func(y_predicted, y_expected)
+        loss_Q = self.loss_func(y_predicted, y_expected) # 计算Q值的损失函数
 
+        # 反向传播优化Q网络（也就是离散动作网络）
         self.actor_optimiser.zero_grad()
         loss_Q.backward()
         if self.clip_grad > 0:
@@ -463,41 +571,46 @@ class PDQNAgent(Agent):
         self.actor_optimiser.step()
 
         # ---------------------- optimize actor ----------------------
+        # 这里是优化连续动作参数网络
         with torch.no_grad():
-            action_params = self.actor_param(states)
-        action_params.requires_grad = True
+            action_params = self.actor_param(states) # 获得预测的所有连续动作参数
+        action_params.requires_grad = True # 因为后续要计算梯度，所以这里设置为True，而在torch.no_grad()中获得的tensor默认是False
         assert (self.weighted ^ self.average ^ self.random_weighted) or \
-               not (self.weighted or self.average or self.random_weighted)
-        Q = self.actor(states, action_params)
+               not (self.weighted or self.average or self.random_weighted) # 防御性编程，确保三者只能选择一个 todo 这三个是啥？
+        Q = self.actor(states, action_params) # 计算所有离散动作的Q值
         Q_val = Q
         if self.weighted:
             # approximate categorical probability density (i.e. counting)
             counts = Counter(actions.cpu().numpy())
+            # 计算每个动作被选择的频率作为权重
             weights = torch.from_numpy(
                 np.array([counts[a] / actions.shape[0] for a in range(self.num_actions)])).float().to(self.device)
-            Q_val = weights * Q
+            Q_val = weights * Q # 对每个动作的Q值乘以对应的权重 todo 这是为啥？
         elif self.average:
-            Q_val = Q / self.num_actions
+            Q_val = Q / self.num_actions # 直接对Q值取平均， todo 这是为啥？
         elif self.random_weighted:
             weights = np.random.uniform(0, 1., self.num_actions)
             weights /= np.linalg.norm(weights)
             weights = torch.from_numpy(weights).float().to(self.device)
-            Q_val = weights * Q
+            Q_val = weights * Q # 对每个动作的Q值乘以对应的随机权重 todo 这是为啥？
         if self.indexed:
-            Q_indexed = Q_val.gather(1, actions.unsqueeze(1))
-            Q_loss = torch.mean(Q_indexed)
+            Q_indexed = Q_val.gather(1, actions.unsqueeze(1)) # 选择当前动作对应的Q值
+            Q_loss = torch.mean(Q_indexed) # 计算损失函数（当前动作的Q值的均值）
         else:
-            Q_loss = torch.mean(torch.sum(Q_val, 1))
+            Q_loss = torch.mean(torch.sum(Q_val, 1)) # 计算损失函数（所有动作的Q值之和的均值）
         self.actor.zero_grad()
-        Q_loss.backward()
+        Q_loss.backward() # 反向传播计算梯度
         from copy import deepcopy
-        delta_a = deepcopy(action_params.grad.data)
+        delta_a = deepcopy(action_params.grad.data) # 获取连续动作参数的梯度
         # step 2
         action_params = self.actor_param(Variable(states))
+        # 将修正后的梯度应用到连续动作参数上
         delta_a[:] = self._invert_gradients(delta_a, action_params, grad_type="action_parameters", inplace=True)
         if self.zero_index_gradients:
+            # 将不属于当前选择的离散动作的连续动作参数的梯度置为0
             delta_a[:] = self._zero_index_gradients(delta_a, batch_action_indices=actions, inplace=True)
 
+        # 应用梯度更新连续动作参数网络 todo 这里用负号的原理？
         out = -torch.mul(delta_a, action_params)
         self.actor_param.zero_grad()
         out.backward(torch.ones(out.shape).to(self.device))
@@ -506,6 +619,7 @@ class PDQNAgent(Agent):
 
         self.actor_param_optimiser.step()
 
+        # 同步到目标网络
         soft_update_target_network(self.actor, self.actor_target, self.tau_actor)
         soft_update_target_network(self.actor_param, self.actor_param_target, self.tau_actor_param)
 
@@ -514,6 +628,8 @@ class PDQNAgent(Agent):
         saves the target actor and critic models
         :param prefix: the count of episodes iterated
         :return:
+        这里的保存模型，仅保存了actor和actor_param两个网络
+        todo 这两个网络分别是干啥的？
         """
         torch.save(self.actor.state_dict(), prefix + '_actor.pt')
         torch.save(self.actor_param.state_dict(), prefix + '_actor_param.pt')

@@ -22,13 +22,13 @@ class OrnsteinUhlenbeckActionNoise(object):
         self.mu = mu
         self.theta = theta
         self.sigma = sigma
-        self.X = np.ones(self.action_dim) * self.mu
+        self.X = np.ones(self.action_dim) * self.mu # 初始化噪音状态为均值，shape 为 (action_dim,)
 
     def reset(self):
         self.X = np.ones(self.action_dim) * self.mu
 
     def sample(self):
-        dx = self.theta * (self.mu - self.X)
-        dx = dx + self.sigma * self.random.randn(len(self.X))
-        self.X = self.X + dx
+        dx = self.theta * (self.mu - self.X)  # 公式第一部分: 均值回复项
+        dx = dx + self.sigma * self.random.randn(len(self.X)) # 公式第二部分: 随机扩散项
+        self.X = self.X + dx # 更新状态
         return self.X
