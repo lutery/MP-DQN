@@ -144,6 +144,7 @@ class PDQNAgent(Agent):
     NAME = "P-DQN Agent"
 
     def __init__(self,
+                 # todo 后续补充各种参数的说明
                  observation_space,
                  action_space,
                  actor_class=QActor,
@@ -174,6 +175,8 @@ class PDQNAgent(Agent):
                  seed=None):
         super(PDQNAgent, self).__init__(observation_space, action_space)
         self.device = torch.device(device)  # 运行设备
+        # self.action_space.spaces[0] 存储离散动作空间
+        # self.action_space.spaces[1,...] 存储连续动作空间
         self.num_actions = self.action_space.spaces[0].n # 离散动作数，每个离散动作对应一个连续动作
         # 连续动作每个动作的shape维度
         self.action_parameter_sizes = np.array([self.action_space.spaces[i].shape[0] for i in range(1,self.num_actions+1)])
@@ -237,6 +240,7 @@ class PDQNAgent(Agent):
         self.noise = OrnsteinUhlenbeckActionNoise(self.action_parameter_size, random_machine=self.np_random, mu=0., theta=0.15, sigma=0.0001) #, theta=0.01, sigma=0.01)
 
         print(self.num_actions+self.action_parameter_size)
+        # todo 后续详细看
         self.replay_memory = Memory(replay_memory_size, observation_space.shape, (1+self.action_parameter_size,), next_actions=False)
         self.actor = actor_class(self.observation_space.shape[0], self.num_actions, self.action_parameter_size, **actor_kwargs).to(device)
         self.actor_target = actor_class(self.observation_space.shape[0], self.num_actions, self.action_parameter_size, **actor_kwargs).to(device)
@@ -279,6 +283,14 @@ class PDQNAgent(Agent):
         return desc
 
     def set_action_parameter_passthrough_weights(self, initial_weights, initial_bias=None):
+        '''
+        Docstring for set_action_parameter_passthrough_weights
+        
+        :param self: Description
+        :param initial_weights: Description
+        :param initial_bias: Description
+        '''
+
         passthrough_layer = self.actor_param.action_parameters_passthrough_layer
         print(initial_weights.shape)
         print(passthrough_layer.weight.data.size())

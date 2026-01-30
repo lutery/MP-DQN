@@ -14,6 +14,20 @@ class MultiPassQActor(nn.Module):
 
     def __init__(self, state_size, action_size, action_parameter_size_list, hidden_layers=(100,),
                  output_layer_init_std=None, activation="relu", **kwargs):
+        '''
+        Docstring for __init__
+        这个类实现了MP-DQN算法中的Q-Actor网络结构
+        
+        :param self: Description
+        :param state_size: 观察空间维度
+        :param action_size: 离散动作数量
+        :param action_parameter_size_list: 连续动作参数维度列表
+        :param hidden_layers: 隐藏层神经元数量列表，用来控制隐藏层的维度
+        :param output_layer_init_std: 输出层权重初始化的标准差，这边没有指定则使用默认初始化
+        :param activation: 激活函数类型
+        :param kwargs: Description 这个类中无用
+        '''
+
         super().__init__()
         self.state_size = state_size
         self.action_size = action_size
@@ -23,8 +37,9 @@ class MultiPassQActor(nn.Module):
 
         # create layers
         self.layers = nn.ModuleList()
-        inputSize = self.state_size + self.action_parameter_size
+        inputSize = self.state_size + self.action_parameter_size # 看来模型的输入是环境观察和执行的动作
         lastHiddenLayerSize = inputSize
+        # 特征提取使用功能的是全连接层
         if hidden_layers is not None:
             nh = len(hidden_layers)
             self.layers.append(nn.Linear(inputSize, hidden_layers[0]))
@@ -34,16 +49,20 @@ class MultiPassQActor(nn.Module):
         self.layers.append(nn.Linear(lastHiddenLayerSize, self.action_size))
 
         # initialise layer weights
+        # 初始化权重
         for i in range(0, len(self.layers) - 1):
             nn.init.kaiming_normal_(self.layers[i].weight, nonlinearity=activation)
             nn.init.zeros_(self.layers[i].bias)
         if output_layer_init_std is not None:
+            # 如果输出层有单独指定则进行单独指定，没有则统一使用前面的初始化方法
             nn.init.normal_(self.layers[-1].weight, mean=0., std=output_layer_init_std)
         # else:
         #     nn.init.zeros_(self.layers[-1].weight)
-        nn.init.zeros_(self.layers[-1].bias)
+        nn.init.zeros_(self.layers[-1].bias) # 偏置统一使用的是0初始化 
 
+        # 这里估计是一个累加和操作，用来计算每个连续动作参数在整体参数中的偏移位置
         self.offsets = self.action_parameter_size_list.cumsum()
+        # 插入一个0到最前面，方便后续索引
         self.offsets = np.insert(self.offsets, 0, 0)
 
     def forward(self, state, action_parameters):

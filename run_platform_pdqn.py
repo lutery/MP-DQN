@@ -127,9 +127,9 @@ def run(seed, episodes, evaluation_episodes, batch_size, gamma, inverting_gradie
     from agents.pdqn_split import SplitPDQNAgent
     from agents.pdqn_multipass import MultiPassPDQNAgent # 本次近看MPDQN算法
     assert not (split and multipass)
-    agent_class = PDQNAgent
-    if split:
-        agent_class = SplitPDQNAgent
+    agent_class = PDQNAgent # 本次看普通的PDQN算法
+    if split: 
+        agent_class = SplitPDQNAgent ## todo 后续再熟悉这个
     elif multipass: # 使用MPDQN强化学习算法标识
         agent_class = MultiPassPDQNAgent
     # 根据不同的算法标识，启动不同的Agent
