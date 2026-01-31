@@ -85,7 +85,7 @@ class Memory(object):
     def sample(self, batch_size, random_machine=np.random):
         # Draw such that we always have a proceeding element. 采样batch_size个样本，可支持自定义的随机数生成器
         # batch_idxs = random_machine.random_integers(self.nb_entries - 2, size=batch_size)
-        # 生成batch_size个随机索引，范围是[0, nb_entries-1]
+        # 生成batch_size个随机索引，范围是[0, nb_entries-1]，所以不是连续的样本
         batch_idxs = random_machine.random_integers(low=0, high=self.nb_entries-1, size=batch_size)
 
         '''states_batch = array_min2d(self.states.get_batch(batch_idxs))

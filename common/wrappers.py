@@ -27,12 +27,12 @@ class ScaledStateWrapper(gym.ObservationWrapper):
             self.low = obs.spaces[0].low
             self.high = obs.spaces[0].high
             assert len(obs.spaces) == 2 and isinstance(obs.spaces[1], gym.spaces.Discrete)
-            # todo 这里的obs.spaces[1]是啥？
+            # 这里的obs.spaces[1]是啥？根据代码上下问，这里的obs.spaces[1]表示步数的离散空间
             self.observation_space = Tuple(
                 (gym.spaces.Box(low=-np.ones(self.low.shape), high=np.ones(self.high.shape),
                                 dtype=np.float32),
                  obs.spaces[1]))
-            # todo 这个是啥？
+            # 这个应该是一种特殊的环境处理，在这种环境下它的obs中携带步数
             self.compound = True
         else:
             raise Exception("Unsupported observation space type: %s" % self.observation_space)
