@@ -66,6 +66,13 @@ class QActor(nn.Module):
         nn.init.zeros_(self.layers[-1].bias)
 
     def forward(self, state, action_parameters):
+        '''
+        Docstring for forward
+        
+        :param self: Description
+        :param state: 环境观察
+        :param action_parameters: 连续动作参数（所有离散动作对应的连续动作参数拼接在一起）
+        '''
         # implement forward
         negative_slope = 0.01
 
@@ -105,7 +112,7 @@ class ParamActor(nn.Module):
         self.state_size = state_size
         self.action_size = action_size
         self.action_parameter_size = action_parameter_size
-        self.squashing_function = squashing_function # todo 作用
+        self.squashing_function = squashing_function # 未用也没实现
         self.activation = activation
         if init_type == "normal":
             # 如果采用的是正态分布初始化，则必须指定标准差
@@ -226,7 +233,7 @@ class PDQNAgent(Agent):
                  loss_func=F.mse_loss, # F.mse_loss
                  clip_grad=10,
                  inverting_gradients=False,
-                 zero_index_gradients=False,
+                 zero_index_gradients=False, # 是否在优化连读动作网络的时候将非本地选择的连续动作参数的梯度置为0
                  indexed=False,
                  weighted=False,
                  average=False,
@@ -263,8 +270,8 @@ class PDQNAgent(Agent):
         self.epsilon_final = epsilon_final
         self.epsilon_steps = epsilon_steps
 
-        # todo
-        self.indexed = indexed
+        self.indexed = indexed # 用于选择Q值的计算方式，是按实际动作索引选择 还是计算所有动作的均值/加权/随机加权
+        # 下面这三个是计算Q值的方式，是按动作选择的频率加权，还是直接取平均，还是随机加权
         self.weighted = weighted
         self.average = average
         self.random_weighted = random_weighted
@@ -462,11 +469,13 @@ class PDQNAgent(Agent):
         with torch.no_grad():
             ind = torch.zeros(self.action_parameter_size, dtype=torch.long) # shape is (total_action_parameter_size,) 创建一个全0张量，用于存储每个连续动作参数对应的离散动作索引
             for a in range(self.num_actions): # 遍历每个离散动作
-                ind[self.action_parameter_offsets[a]:self.action_parameter_offsets[a+1]] = a # 这里是将每个连续动作参数对应的离散动作索引存储到ind张量中，全部覆盖？ todo
+                ind[self.action_parameter_offsets[a]:self.action_parameter_offsets[a+1]] = a # 这里是将每个连续动作参数对应的离散动作索引存储到ind张量中，这样就可以知道每个连续动作参数属于哪个离散动作了
             # ind_tile = np.tile(ind, (self.batch_size, 1))
-            ind_tile = ind.repeat(self.batch_size, 1).to(self.device) # ind_tile shape is (batch_size, total_action_parameter_size)
+            ind_tile = ind.repeat(self.batch_size, 1).to(self.device) # ind_tile shape is (batch_size, total_action_parameter_size) 这是是将这个连续动作对应离散动作的标记扩展到所有的样本
             actual_index = ind_tile != batch_action_indices[:, np.newaxis] # actual_index shape is (batch_size, total_action_parameter_size),用于标记哪些连续动作参数不属于当前选择的离散动作
-            grad[actual_index] = 0. # 将不属于当前选择的离散动作的连续动作参数的梯度置为0 todo 这里为啥可以直接赋值，梯度的位置能对得上？
+            grad[actual_index] = 0. # 将不属于当前选择的离散动作的连续动作参数的梯度置为0 
+            # 之所以可以直接赋值，是因为输出的维度是(batch_size, total_action_parameter_size)，和grad的维度是一样的
+            # 所以这里直接直接赋值是可以的，不会出现维度不匹配的问题
         return grad
 
     def _invert_gradients(self, grad, vals, grad_type, inplace=True):
@@ -598,23 +607,28 @@ class PDQNAgent(Agent):
             action_params = self.actor_param(states) # 获得预测的所有连续动作参数
         action_params.requires_grad = True # 因为后续要计算梯度，所以这里设置为True，而在torch.no_grad()中获得的tensor默认是False
         assert (self.weighted ^ self.average ^ self.random_weighted) or \
-               not (self.weighted or self.average or self.random_weighted) # 防御性编程，确保三者只能选择一个 todo 这三个是啥？
+               not (self.weighted or self.average or self.random_weighted) # 防御性编程，确保三者只能选择一个 或都不选择，因为这关系到后面选择一个计算Q值的均值（也就是期望）
         Q = self.actor(states, action_params) # 计算所有离散动作的Q值
         Q_val = Q
+        # 注意，以下乘以权重不是计算期望，而是按照某种方式调整每个动作的Q值，从而影响后续的梯度计算
         if self.weighted:
             # approximate categorical probability density (i.e. counting)
+            # 统计每一个离散动作在当前批量中被选择的次数，作为权重，出现次数越多，权重越大，其
+            # 对应的Q值也就越重要
             counts = Counter(actions.cpu().numpy())
             # 计算每个动作被选择的频率作为权重
             weights = torch.from_numpy(
                 np.array([counts[a] / actions.shape[0] for a in range(self.num_actions)])).float().to(self.device)
-            Q_val = weights * Q # 对每个动作的Q值乘以对应的权重 todo 这是为啥？
+            Q_val = weights * Q # 对每个动作的Q值乘以对应的权重 ，每个批次中每个样本所有动作的Q值都乘以这个权重，得到期望
+            # 每个动作的权重来源于该动作在批次中被选择的频率，一开始的随机的，随着后续的训练会逐渐收敛到最优动作，最优动作的权重会越来越大
+            # 这种方式应该可以引导网络更快地收敛到最优动作，但是也可能会导致过拟合，因为网络可能会过度关注那些频率高的动作，忽略其他动作
         elif self.average:
-            Q_val = Q / self.num_actions # 直接对Q值取平均， todo 这是为啥？
+            Q_val = Q / self.num_actions # 直接对Q值取平均，忽略动作选择的频率信息，得到期望，这种方式适合动作选择比较均匀的情况，可以用于探索
         elif self.random_weighted:
             weights = np.random.uniform(0, 1., self.num_actions)
             weights /= np.linalg.norm(weights)
             weights = torch.from_numpy(weights).float().to(self.device)
-            Q_val = weights * Q # 对每个动作的Q值乘以对应的随机权重 todo 这是为啥？
+            Q_val = weights * Q # 对每个动作的Q值乘以对应的随机权重 ，这种方式可以引入随机性，增加探索性，和动作出现的次数无关
         if self.indexed:
             Q_indexed = Q_val.gather(1, actions.unsqueeze(1)) # 选择当前动作对应的Q值
             Q_loss = torch.mean(Q_indexed) # 计算损失函数（当前动作的Q值的均值）
@@ -633,8 +647,12 @@ class PDQNAgent(Agent):
             delta_a[:] = self._zero_index_gradients(delta_a, batch_action_indices=actions, inplace=True)
 
         # 应用梯度更新连续动作参数网络 todo 这里用负号的原理？
+        # todo 尝试另一种方式计算这里的代码，类似ddpg那样
+        # 具体看md文档
         out = -torch.mul(delta_a, action_params)
         self.actor_param.zero_grad()
+        # 因为backward只能接受标量，所以这里传入一个和out形状相同的全1张量  ，相当于做sum操作得到一个标量
+        # 这块代码的等级代码看md文档
         out.backward(torch.ones(out.shape).to(self.device))
         if self.clip_grad > 0:
             torch.nn.utils.clip_grad_norm_(self.actor_param.parameters(), self.clip_grad)

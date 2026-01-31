@@ -84,14 +84,18 @@ class MultiPassQActor(nn.Module):
         # duplicate inputs so we can process all actions in a single pass
         batch_size = state.shape[0]
         # with torch.no_grad():
-        # todo 这里为啥要将状态和全零的动作参数拼接，然后再进行重复？
+        # 这里为啥要将状态和全零的动作参数拼接，然后再进行重复？
+        # 因为这里不是简单的把状态和动作参数拼接起来传递进去计算Q值
+        # 而是要针对每个离散动作，都要将对应的连续动作参数填充进去，然后再传递进去计算Q值
+        # 所以先将状态和全零的动作参数拼接起来，然后再针对每个离散动作进行填充
+        # 相当于是计算每个状态和独立的连续动作的组合得到对应离散动作的Q值
         x = torch.cat((state, torch.zeros_like(action_parameters)), dim=1) # x shape (batch_size, state_size + total_action_parameter_size) 
         # 对于每个离散动作，都要将对应的连续动作参数填充进去，每个样本都要这样做，所以要重复batch_size次
         x = x.repeat(self.action_size, 1) # x shape (batch_size * action_size, state_size + total_action_parameter_size)
         for a in range(self.action_size): # 遍历离散动作
-            # action_parameters[:, self.offsets[a]:self.offsets[a+1]] 是在取出对应离散动作的连续动作参数
+            # action_parameters[:, self.offsets[a]:self.offsets[a+1]] 是在取出所有样本对应离散动作的连续动作参数
             # a*batch_size:(a+1)*batch_size 是在取出对应离散动作的那一块样本（针对所有batch_size个样本）
-            # 然后将对应的连续动作参数填充进去，看来每个样本都要单独计算一遍
+            # 然后将对应的连续动作参数填充进去，看来每个样本对应的连续动作，对应的离散动作组合在一起，然后每个离散动作和连续动作组合一起的值和state组合一起最后再单独计算一遍
             x[a*batch_size:(a+1)*batch_size, self.state_size + self.offsets[a]: self.state_size + self.offsets[a+1]] \
                 = action_parameters[:, self.offsets[a]:self.offsets[a+1]]
         
