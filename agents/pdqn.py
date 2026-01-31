@@ -211,7 +211,6 @@ class PDQNAgent(Agent):
     NAME = "P-DQN Agent"
 
     def __init__(self,
-                 # todo 后续补充各种参数的说明
                  observation_space,
                  action_space,
                  actor_class=QActor, # 在mpdqn中没有直接在这里传入，而是在自己的构造函数中构建了actor
@@ -249,7 +248,8 @@ class PDQNAgent(Agent):
         self.action_parameter_sizes = np.array([self.action_space.spaces[i].shape[0] for i in range(1,self.num_actions+1)])
         # 统计所有连续动作的总维度
         self.action_parameter_size = int(self.action_parameter_sizes.sum())
-        # 连续动作的最大值和最小值以及范围 todo 难道是归一化后的范围？
+        # 连续动作的最大值和最小值以及范围 
+        # 难道是归一化后的范围？基本上是对，主要是在优化梯度的时候，对于接近边界的连续动作参数进行限制，使其的值不超过边界
         self.action_max = torch.from_numpy(np.ones((self.num_actions,))).float().to(device)
         self.action_min = -self.action_max.detach()
         self.action_range = (self.action_max-self.action_min).detach()
@@ -257,7 +257,7 @@ class PDQNAgent(Agent):
         # 获取并展平每一个连续动过的最大值和最小值
         self.action_parameter_max_numpy = np.concatenate([self.action_space.spaces[i].high for i in range(1,self.num_actions+1)]).ravel()
         self.action_parameter_min_numpy = np.concatenate([self.action_space.spaces[i].low for i in range(1,self.num_actions+1)]).ravel()
-        # 计算每个连续动作的范围 todo 这里的和上面的有啥区别？
+        # 计算每个连续动作的范围 原理同上，知识针对连续动作参数
         self.action_parameter_range_numpy = (self.action_parameter_max_numpy - self.action_parameter_min_numpy)
         # 以下是上面的torch形式
         self.action_parameter_max = torch.from_numpy(self.action_parameter_max_numpy).float().to(device)
@@ -277,12 +277,13 @@ class PDQNAgent(Agent):
         self.random_weighted = random_weighted
         assert (weighted ^ average ^ random_weighted) or not (weighted or average or random_weighted)
         
-        # 索引偏移量，用于分割连续动作参数 todo 后续看如何使用
+        # 索引偏移量，用于分割连续动作参数 
+        # 都是用在提取每个离散动作对应的连续动作参数
         self.action_parameter_offsets = self.action_parameter_sizes.cumsum()
         # 第一个动作是没有便宜的，所以这里在头部加入一个0
         self.action_parameter_offsets = np.insert(self.action_parameter_offsets, 0, 0)
 
-        #记录各种参数 todo 后续看代码时再增加注释
+        #记录各种参数
         self.batch_size = batch_size
         self.gamma = gamma
         self.replay_memory_size = replay_memory_size
@@ -646,7 +647,8 @@ class PDQNAgent(Agent):
             # 将不属于当前选择的离散动作的连续动作参数的梯度置为0
             delta_a[:] = self._zero_index_gradients(delta_a, batch_action_indices=actions, inplace=True)
 
-        # 应用梯度更新连续动作参数网络 todo 这里用负号的原理？
+        # 应用梯度更新连续动作参数网络
+        # 看markdown，实际上还是优点最大Q值的想法
         # todo 尝试另一种方式计算这里的代码，类似ddpg那样
         # 具体看md文档
         out = -torch.mul(delta_a, action_params)

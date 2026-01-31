@@ -77,7 +77,7 @@ class MultiPassQActor(nn.Module):
         :param action_parameters: 所有连续动作参数 shape (batch_size, total_action_parameter_size)
         '''
         # implement forward
-        # todo 作用
+        # 这个作用特定的激活函数的常量，是可以优化的，不必写在这里
         negative_slope = 0.01
 
         Q = []
@@ -100,7 +100,6 @@ class MultiPassQActor(nn.Module):
                 = action_parameters[:, self.offsets[a]:self.offsets[a+1]]
         
         # 将组合的输入传递通过网络，每个离散动作单独一个batch进行计算，后续在拼接起来
-        # todo 这里面的shape是如何计算变化的？
         num_layers = len(self.layers)
         for i in range(0, num_layers - 1):
             if self.activation == "relu":
@@ -117,7 +116,7 @@ class MultiPassQActor(nn.Module):
             # a*batch_size:(a+1)*batch_size：对每个样本获取指定离散动作的Q值
             Qa = Qall[a*batch_size:(a+1)*batch_size, a] # Qa shape (batch_size,)
             if len(Qa.shape) == 1:
-                # 看来如果只有一个维度的话，需要扩展一下维度，todo 是否是需要将一个离散动作的环境和多个离散动作的环境兼容
+                # 看来如果只有一个维度的话，需要扩展一下维度
                 Qa = Qa.unsqueeze(1) # Qa shape (batch_size, 1)
             Q.append(Qa)
         Q = torch.cat(Q, dim=1) # Q shape (batch_size, action_size) 这里的cat就是将每个离散动作的Q值拼接起来，因为在计算时每个离散动作都是单独计算的，不和其他离散动作混在一起计算

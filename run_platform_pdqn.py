@@ -99,7 +99,8 @@ def run(seed, episodes, evaluation_episodes, batch_size, gamma, inverting_gradie
     # 创建环境
     env = gym.make('Platform-v0')
     # 这里是动作的初始参数，手工指定为对应环境动作中连续动作每个动作的中间值
-    # 估计是为了加快收敛做准备 todo 后续是怎么用的
+    # 估计是为了加快收敛做准备
+    # 后续是直接加入直通层，不参与梯度更新，是的输出的梯度能够接近最优质的附近
     # 其他的信息查看md
     initial_params_ = [3., 10., 400.]
     if scale_actions:
@@ -110,7 +111,7 @@ def run(seed, episodes, evaluation_episodes, batch_size, gamma, inverting_gradie
                         env.action_space.spaces[1].spaces[a].high - env.action_space.spaces[1].spaces[a].low) - 1.
 
     env = ScaledStateWrapper(env) # 将环境归一化到-1 - 1
-    env = PlatformFlattenedActionWrapper(env) # 提取连续动作与离散动作同级 todo 为啥？
+    env = PlatformFlattenedActionWrapper(env) # 提取连续动作与离散动作同级，估计是为了代码能够方便处理，因为对实际的action并没有特别的处理，只是对action_space进行了处理
     if scale_actions:
         env = ScaledParameterisedActionWrapper(env) # 如果开启了缩放动作，则包装对应的环境包装器
     
@@ -129,7 +130,7 @@ def run(seed, episodes, evaluation_episodes, batch_size, gamma, inverting_gradie
     assert not (split and multipass)
     agent_class = PDQNAgent # 本次看普通的PDQN算法
     if split: 
-        agent_class = SplitPDQNAgent ## todo 后续再熟悉这个
+        agent_class = SplitPDQNAgent
     elif multipass: # 使用MPDQN强化学习算法标识
         agent_class = MultiPassPDQNAgent
     # 根据不同的算法标识，启动不同的Agent
